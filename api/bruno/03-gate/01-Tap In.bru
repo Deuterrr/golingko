@@ -1,0 +1,39 @@
+meta {
+  name: 01-Tap In
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/gate/tap-in
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "card_number": "{{cardNumber}}",
+    "station_id": "MRT-BHI"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.gate_opened: eq true
+  res.body.journey.status: eq IN_PROGRESS
+  res.body.journey.entry_station_id: eq MRT-BHI
+}
+
+tests {
+  test("turnstile opens and creates in-progress journey", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.gate_opened).to.be.true;
+    expect(body.journey.status).to.equal("in_progress");
+    expect(body.journey.entry_station_id).to.equal("MRT-BHI");
+  });
+}

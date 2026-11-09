@@ -1,0 +1,30 @@
+meta {
+  name: 02-Filter Routes by Mode
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/routes?mode=mrt
+  body: none
+  auth: none
+}
+
+params:query {
+  mode: MRT
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("all routes returned match requested transport mode", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.length).to.be.above(0);
+    body.forEach(function(route) {
+      expect(route.mode).to.equal("mrt");
+    });
+  });
+}

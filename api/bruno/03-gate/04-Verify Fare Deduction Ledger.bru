@@ -1,0 +1,30 @@
+meta {
+  name: 04-Verify Fare Deduction Ledger
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/cards/{{cardNumber}}/transactions?limit=5
+  body: none
+  auth: none
+}
+
+params:query {
+  limit: 5
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("ledger confirms FARE_DEDUCTION debit transaction recorded", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    const deduction = body.find(t => t.transaction_type === "fare_deduction");
+    expect(deduction).to.be.an("object");
+    expect(deduction.amount).to.be.below(0);
+    expect(deduction.journey_id).to.not.be.null;
+  });
+}

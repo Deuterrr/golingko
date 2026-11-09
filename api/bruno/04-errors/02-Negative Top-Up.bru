@@ -1,0 +1,33 @@
+meta {
+  name: 02-Negative Top-Up
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/cards/{{cardNumber}}/top-up
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "amount": -1000
+  }
+}
+
+assert {
+  res.status: eq 422
+  res.body.error: isDefined
+}
+
+tests {
+  test("negative top up amount is rejected with 422 Unprocessable Entity", function() {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().error).to.include("greater than zero");
+  });
+}

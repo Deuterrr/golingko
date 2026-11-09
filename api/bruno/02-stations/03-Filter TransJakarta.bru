@@ -1,0 +1,30 @@
+meta {
+  name: 03-Filter TransJakarta
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/stations?mode=transjakarta
+  body: none
+  auth: none
+}
+
+params:query {
+  mode: TRANSJAKARTA
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("all stations returned are TRANSJAKARTA mode", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.length).to.be.above(0);
+    body.forEach(function(station) {
+      expect(station.mode).to.equal("transjakarta");
+    });
+  });
+}

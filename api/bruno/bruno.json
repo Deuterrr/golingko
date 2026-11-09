@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Golingko Transit",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

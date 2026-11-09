@@ -1,0 +1,34 @@
+meta {
+  name: 04-Check Route Connectivity
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/routes/connectivity?origin=MRT-BLB&destination=MRT-DKA
+  body: none
+  auth: none
+}
+
+params:query {
+  origin: MRT-BLB
+  destination: MRT-DKA
+}
+
+assert {
+  res.status: eq 200
+  res.body.is_connected: eq true
+  res.body.origin_station_id: eq MRT-BLB
+  res.body.destination_station_id: eq MRT-DKA
+}
+
+tests {
+  test("returns connectivity validation between two transit stations", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.is_connected).to.be.true;
+    expect(body.connecting_routes).to.be.an("array");
+    expect(body.connecting_routes.length).to.be.above(0);
+    expect(body.connecting_routes[0].id).to.equal("MRT-M1");
+  });
+}

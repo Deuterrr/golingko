@@ -1,0 +1,28 @@
+meta {
+  name: Health Check
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: isDefined
+  res.body.database: isDefined
+  res.body.timestamp: isDefined
+}
+
+tests {
+  test("status code is 200 OK", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("status is ok or degraded", function() {
+    expect(["ok", "degraded"]).to.include(res.getBody().status);
+  });
+}

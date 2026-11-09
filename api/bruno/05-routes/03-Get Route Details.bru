@@ -1,0 +1,31 @@
+meta {
+  name: 03-Get Route Details
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/routes/MRT-M1
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.id: eq MRT-M1
+  res.body.mode: eq MRT
+  res.body.code: eq M1
+}
+
+tests {
+  test("returns route metadata with ordered stops sequence", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.id).to.equal("MRT-M1");
+    expect(body.name).to.equal("North-South Line");
+    expect(body.mode).to.equal("mrt");
+    expect(body.stops).to.be.an("array");
+    expect(body.stops.length).to.be.above(0);
+    expect(body.stops[0].sequence).to.equal(1);
+  });
+}

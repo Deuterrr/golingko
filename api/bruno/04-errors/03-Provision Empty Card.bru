@@ -1,0 +1,41 @@
+meta {
+  name: 03-Provision Empty Card
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/cards
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "initial_balance": 0
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.balance: eq 0
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    const data = res.getBody();
+    bru.setVar("emptyCardNumber", data.card_number);
+    bru.setEnvVar("emptyCardNumber", data.card_number);
+  }
+}
+
+tests {
+  test("creates zero-balance card for low-balance gate tests", function() {
+    expect(res.getStatus()).to.equal(201);
+    expect(res.getBody().balance).to.equal(0);
+  });
+}

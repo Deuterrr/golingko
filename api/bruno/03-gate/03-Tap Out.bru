@@ -1,0 +1,42 @@
+meta {
+  name: 03-Tap Out
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/gate/tap-out
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "card_number": "{{cardNumber}}",
+    "station_id": "MRT-BLB"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.gate_opened: eq true
+  res.body.journey.status: eq COMPLETED
+  res.body.journey.exit_station_id: eq MRT-BLB
+  res.body.remaining_balance: isDefined
+}
+
+tests {
+  test("turnstile tap-out calculates fare and settles commute", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.gate_opened).to.be.true;
+    expect(body.journey.status).to.equal("completed");
+    expect(body.journey.exit_station_id).to.equal("MRT-BLB");
+    expect(body.fare.fare_amount).to.be.above(0);
+    expect(body.remaining_balance).to.equal(75000 - body.fare.fare_amount);
+  });
+}

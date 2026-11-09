@@ -1,0 +1,34 @@
+meta {
+  name: 05-Tap Out Without Journey
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/gate/tap-out
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "card_number": "{{emptyCardNumber}}",
+    "station_id": "MRT-BLB"
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error: isDefined
+}
+
+tests {
+  test("tap-out rejected with 409 when no active journey exists", function() {
+    expect(res.getStatus()).to.equal(409);
+    expect(res.getBody().error).to.include("no active journey found");
+  });
+}

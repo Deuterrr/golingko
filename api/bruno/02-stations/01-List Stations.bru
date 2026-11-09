@@ -1,0 +1,28 @@
+meta {
+  name: 01-List Stations
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/stations
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body: isDefined
+}
+
+tests {
+  test("returns list of active stations across operators", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(Array.isArray(body)).to.be.true;
+    expect(body.length).to.be.at.least(4);
+    const stationIds = body.map(s => s.id);
+    expect(stationIds).to.include("MRT-BHI");
+    expect(stationIds).to.include("TJ-KOTA");
+  });
+}

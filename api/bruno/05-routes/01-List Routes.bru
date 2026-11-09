@@ -1,0 +1,31 @@
+meta {
+  name: 01-List Routes
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/routes
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("returns all active transit routes across network", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body).to.be.an("array");
+    expect(body.length).to.be.above(0);
+    
+    const route = body[0];
+    expect(route).to.have.property("id");
+    expect(route).to.have.property("name");
+    expect(route).to.have.property("mode");
+    expect(route).to.have.property("code");
+    expect(route.stops).to.be.an("array");
+  });
+}

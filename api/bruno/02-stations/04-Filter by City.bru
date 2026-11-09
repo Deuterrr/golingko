@@ -1,0 +1,32 @@
+meta {
+  name: 04-Filter by City
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/stations?city=Jakarta Pusat
+  body: none
+  auth: none
+}
+
+params:query {
+  city: Jakarta Pusat
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("all stations returned belong to the specified city", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.length).to.be.above(0);
+    body.forEach(function(station) {
+      expect(station.city).to.equal("Jakarta Pusat");
+      expect(station.district).to.be.a("string");
+      expect(station.subdistrict).to.be.a("string");
+    });
+  });
+}

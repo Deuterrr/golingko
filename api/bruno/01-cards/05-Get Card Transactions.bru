@@ -1,0 +1,30 @@
+meta {
+  name: 05-Get Card Transactions
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/cards/{{cardNumber}}/transactions?limit=10
+  body: none
+  auth: none
+}
+
+params:query {
+  limit: 10
+}
+
+assert {
+  res.status: eq 200
+  res.body: isDefined
+}
+
+tests {
+  test("audit ledger returns transaction list", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(Array.isArray(body)).to.be.true;
+    expect(body.length).to.be.at.least(1);
+    expect(body[0].transaction_type).to.be.oneOf(["top_up", "fare_deduction", "penalty_fee", "refund"]);
+  });
+}

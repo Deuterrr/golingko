@@ -1,0 +1,34 @@
+meta {
+  name: 02-Tap In Duplicate Conflict
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/gate/tap-in
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "card_number": "{{cardNumber}}",
+    "station_id": "MRT-BHI"
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error: isDefined
+}
+
+tests {
+  test("duplicate tap-in triggers 409 conflict anti-tailgating rejection", function() {
+    expect(res.getStatus()).to.equal(409);
+    expect(res.getBody().error).to.include("already has an in-progress journey");
+  });
+}

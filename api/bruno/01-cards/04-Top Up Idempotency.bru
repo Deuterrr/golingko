@@ -1,0 +1,36 @@
+meta {
+  name: 04-Top Up Idempotency
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/cards/{{cardNumber}}/top-up
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{topUpKey}}
+}
+
+body:json {
+  {
+    "amount": 25000
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.headers['x-cache-lookup']: eq HIT
+  res.body.card.balance: eq 75000
+}
+
+tests {
+  test("idempotent replay returns cached hit without duplicate deduction", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getHeader("x-cache-lookup")).to.equal("HIT");
+    expect(res.getBody().card.balance).to.equal(75000);
+  });
+}

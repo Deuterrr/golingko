@@ -1,0 +1,36 @@
+meta {
+  name: 05-Get Station Details
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/stations/MRT-DKA
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.id: eq MRT-DKA
+  res.body.name: eq Dukuh Atas BNI
+  res.body.mode: eq MRT
+  res.body.city: eq Jakarta Pusat
+  res.body.district: eq Setiabudi
+  res.body.subdistrict: eq Karet Tengsin
+}
+
+tests {
+  test("returns station details with geographical metadata", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.id).to.equal("MRT-DKA");
+    expect(body.name).to.equal("Dukuh Atas BNI");
+    expect(body.mode).to.equal("mrt");
+    expect(body.city).to.equal("Jakarta Pusat");
+    expect(body.district).to.equal("Setiabudi");
+    expect(body.subdistrict).to.equal("Karet Tengsin");
+    expect(body.latitude).to.be.a("number");
+    expect(body.longitude).to.be.a("number");
+  });
+}

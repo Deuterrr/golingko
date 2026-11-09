@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS ledger_transactions;
+DROP TABLE IF EXISTS journeys;
+DROP TABLE IF EXISTS route_stations;
+DROP TABLE IF EXISTS routes;
+DROP TABLE IF EXISTS stations;
+DROP TABLE IF EXISTS cards;

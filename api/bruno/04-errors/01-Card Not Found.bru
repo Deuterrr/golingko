@@ -1,0 +1,23 @@
+meta {
+  name: 01-Card Not Found
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/cards/9999999999999999
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 404
+  res.body.error: isDefined
+}
+
+tests {
+  test("returns 404 when querying unknown card number", function() {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getBody().error).to.include("not found");
+  });
+}

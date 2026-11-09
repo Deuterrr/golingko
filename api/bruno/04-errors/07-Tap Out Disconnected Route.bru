@@ -1,0 +1,52 @@
+meta {
+  name: 07-Tap Out Disconnected Route
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/gate/tap-out
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "card_number": "{{disconnectedCard}}",
+    "station_id": "LRT-BK-HAR"
+  }
+}
+
+assert {
+  res.status: eq 422
+  res.body.error: isDefined
+}
+
+script:pre-request {
+  const baseUrl = bru.getEnvVar("baseUrl") || "http://localhost:8080";
+  const cardRes = await fetch(`${baseUrl}/api/cards`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initial_balance: 50000 })
+  });
+  if (cardRes.ok) {
+    const card = await cardRes.json();
+    bru.setVar("disconnectedCard", card.card_number);
+    await fetch(`${baseUrl}/api/gate/tap-in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ card_number: card.card_number, station_id: "MRT-BHI" })
+    });
+  }
+}
+
+tests {
+  test("tap-out rejected with 422 when entry and exit stations have no connecting route", function() {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().error).to.include("no connecting transit route between entry and exit stations");
+  });
+}

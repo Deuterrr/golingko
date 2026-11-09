@@ -1,0 +1,35 @@
+meta {
+  name: 06-Tap In Station Not In Route
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/gate/tap-in
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "card_number": "{{cardNumber}}",
+    "station_id": "MRT-BHI",
+    "route_id": "TJ-1"
+  }
+}
+
+assert {
+  res.status: eq 422
+  res.body.error: isDefined
+}
+
+tests {
+  test("gate entry rejected when station is not part of specified route", function() {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().error).to.include("station is not part of the specified route");
+  });
+}

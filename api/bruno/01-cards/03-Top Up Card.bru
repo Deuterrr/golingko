@@ -1,0 +1,46 @@
+meta {
+  name: 03-Top Up Card
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/cards/{{cardNumber}}/top-up
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Idempotency-Key: {{topUpKey}}
+}
+
+body:json {
+  {
+    "amount": 25000
+  }
+}
+
+script:pre-request {
+  const key = "bru-topup-" + Date.now();
+  bru.setVar("topUpKey", key);
+  bru.setEnvVar("topUpKey", key);
+}
+
+assert {
+  res.status: eq 200
+  res.body.card.balance: eq 75000
+  res.body.transaction.transaction_type: eq TOP_UP
+  res.body.transaction.amount: eq 25000
+  res.body.transaction.balance_after: eq 75000
+}
+
+tests {
+  test("atomic top-up applied and ledger updated", function() {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.card.balance).to.equal(75000);
+    expect(body.transaction.transaction_type).to.equal("top_up");
+    expect(body.transaction.amount).to.equal(25000);
+  });
+}

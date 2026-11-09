@@ -1,0 +1,1293 @@
+{
+  "info": {
+    "_postman_id": "8d3e911a-514e-4e63-9f20-fa263bc8912e",
+    "name": "Golingko Transit",
+    "description": "Comprehensive automated API test suite and documentation for Golingko - One Platform, Multiple Transit Networks.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "cardNumber",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "emptyCardNumber",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "topUpIdempotencyKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "disconnectedCardNumber",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Health Check",
+      "item": [
+        {
+          "name": "System Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Health payload conforms to schema\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"status\");",
+                  "    pm.expect(json.status).to.be.oneOf([\"ok\", \"degraded\"]);",
+                  "    pm.expect(json).to.have.property(\"database\");",
+                  "    pm.expect(json).to.have.property(\"timestamp\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Check service liveness and database connection ping."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "01 Cards & Ledger",
+      "item": [
+        {
+          "name": "01 Create Transit Card",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"Card generated with 16 digits and initial balance\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a(\"string\");",
+                  "    pm.expect(json.card_number).to.match(/^[0-9]{16}$/);",
+                  "    pm.expect(json.balance).to.eql(50000);",
+                  "    pm.expect(json.status).to.eql(\"ACTIVE\");",
+                  "    pm.collectionVariables.set(\"cardNumber\", json.card_number);",
+                  "    pm.environment.set(\"cardNumber\", json.card_number);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"initial_balance\": 50000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards"
+              ]
+            },
+            "description": "Provisions a virtual transit card with auto-generated 16-digit card number."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Get Card Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Card details match created card\", function () {",
+                  "    var json = pm.response.json();",
+                  "    var currentCard = pm.collectionVariables.get(\"cardNumber\") || pm.environment.get(\"cardNumber\");",
+                  "    pm.expect(json.card_number).to.eql(currentCard);",
+                  "    pm.expect(json.status).to.eql(\"ACTIVE\");",
+                  "    pm.expect(json.balance).to.be.a(\"number\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardNumber}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardNumber}}"
+              ]
+            },
+            "description": "Fetch card metadata and current stored value balance."
+          },
+          "response": []
+        },
+        {
+          "name": "03 Top Up Card (Atomic & Idempotent)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var uuid = pm.variables.replaceIn('{{$guid}}');",
+                  "var key = 'topup-key-' + uuid;",
+                  "pm.collectionVariables.set('topUpIdempotencyKey', key);",
+                  "pm.request.headers.upsert({key: 'Idempotency-Key', value: key});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Card balance increased by Rp 25,000 and TOP_UP recorded in ledger\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.card.balance).to.eql(75000);",
+                  "    pm.expect(json.transaction.transaction_type).to.eql(\"TOP_UP\");",
+                  "    pm.expect(json.transaction.amount).to.eql(25000);",
+                  "    pm.expect(json.transaction.balance_after).to.eql(75000);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{topUpIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 25000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardNumber}}/top-up",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardNumber}}",
+                "top-up"
+              ]
+            },
+            "description": "Credits card balance atomically and logs ledger transaction."
+          },
+          "response": []
+        },
+        {
+          "name": "04 Top Up Card Idempotency Cache Hit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"X-Cache-Lookup header is HIT\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"X-Cache-Lookup\")).to.eql(\"HIT\");",
+                  "});",
+                  "pm.test(\"Balance unchanged and identical response body returned\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.card.balance).to.eql(75000);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{topUpIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 25000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardNumber}}/top-up",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardNumber}}",
+                "top-up"
+              ]
+            },
+            "description": "Re-sends identical Idempotency-Key to verify in-memory deduplication cache."
+          },
+          "response": []
+        },
+        {
+          "name": "05 Get Card Transactions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Transaction list contains ledger entries\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an(\"array\");",
+                  "    pm.expect(json.length).to.be.at.least(1);",
+                  "    pm.expect(json[0]).to.have.property(\"transaction_type\");",
+                  "    pm.expect(json[0]).to.have.property(\"balance_after\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardNumber}}/transactions?limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardNumber}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Audit trail of double-entry ledger records for the card."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 Stations Directory",
+      "item": [
+        {
+          "name": "01 List All Stations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns multi-modal station network\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an(\"array\");",
+                  "    pm.expect(json.length).to.be.at.least(4);",
+                  "    var ids = json.map(s => s.id);",
+                  "    pm.expect(ids).to.include(\"MRT-BHI\");",
+                  "    pm.expect(ids).to.include(\"TJ-KOTA\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stations"
+              ]
+            },
+            "description": "List all stations across MRT, LRT, TransJakarta, and Mikrotrans."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Filter MRT Stations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"All stations are MRT mode\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "    json.forEach(function (station) {",
+                  "        pm.expect(station.mode).to.eql(\"MRT\");",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stations?mode=mrt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stations"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "mrt"
+                }
+              ]
+            },
+            "description": "Filter station directory for MRT Jakarta operator mode."
+          },
+          "response": []
+        },
+        {
+          "name": "03 Filter TransJakarta Stations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"All stations are TRANSJAKARTA mode\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "    json.forEach(function (station) {",
+                  "        pm.expect(station.mode).to.eql(\"TRANSJAKARTA\");",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stations?mode=transjakarta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stations"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "transjakarta"
+                }
+              ]
+            },
+            "description": "Filter station directory for TransJakarta BRT mode."
+          },
+          "response": []
+        },
+        {
+          "name": "04 Filter Stations by City",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"All stations belong to Jakarta Pusat with geographical data\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "    json.forEach(function (station) {",
+                  "        pm.expect(station.city).to.eql(\"Jakarta Pusat\");",
+                  "        pm.expect(station).to.have.property(\"district\");",
+                  "        pm.expect(station).to.have.property(\"subdistrict\");",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stations?city=Jakarta%20Pusat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stations"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "Jakarta Pusat"
+                }
+              ]
+            },
+            "description": "Filter stations located within Jakarta Pusat municipality."
+          },
+          "response": []
+        },
+        {
+          "name": "05 Get Station Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns station detail with geographical attributes\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.eql(\"MRT-DKA\");",
+                  "    pm.expect(json.name).to.eql(\"Dukuh Atas BNI\");",
+                  "    pm.expect(json.city).to.eql(\"Jakarta Pusat\");",
+                  "    pm.expect(json.district).to.eql(\"Setiabudi\");",
+                  "    pm.expect(json.subdistrict).to.eql(\"Karet Tengsin\");",
+                  "    pm.expect(json.latitude).to.be.a(\"number\");",
+                  "    pm.expect(json.longitude).to.be.a(\"number\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stations/MRT-DKA",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stations",
+                "MRT-DKA"
+              ]
+            },
+            "description": "Retrieve specific station by unique station ID."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 Gate Commute Lifecycle",
+      "item": [
+        {
+          "name": "01 Gate Tap-In (MRT Bundaran HI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Gate opened and journey status is IN_PROGRESS\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.gate_opened).to.be.true;",
+                  "    pm.expect(json.journey.status).to.eql(\"IN_PROGRESS\");",
+                  "    pm.expect(json.journey.entry_station_id).to.eql(\"MRT-BHI\");",
+                  "    pm.expect(json.journey.id).to.be.a(\"string\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{cardNumber}}\",\n  \"station_id\": \"MRT-BHI\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-in",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-in"
+              ]
+            },
+            "description": "Enter turnstile at Bundaran HI station. Validates balance >= Rp 5,000."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Tap-In Anti-Tailgating Conflict (Expected 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 409 Conflict\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"Error specifies in-progress journey duplicate prevention\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"already has an in-progress journey\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{cardNumber}}\",\n  \"station_id\": \"MRT-BHI\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-in",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-in"
+              ]
+            },
+            "description": "Attempting second tap-in while commute is active must be rejected."
+          },
+          "response": []
+        },
+        {
+          "name": "03 Gate Tap-Out & Tariff Clearance (MRT Lebak Bulus)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Exit gate opened, trip completed, and fare settled\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.gate_opened).to.be.true;",
+                  "    pm.expect(json.journey.status).to.eql(\"COMPLETED\");",
+                  "    pm.expect(json.journey.exit_station_id).to.eql(\"MRT-BLB\");",
+                  "    pm.expect(json.fare.fare_amount).to.be.above(0);",
+                  "    pm.expect(json.remaining_balance).to.eql(75000 - json.fare.fare_amount);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{cardNumber}}\",\n  \"station_id\": \"MRT-BLB\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-out",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-out"
+              ]
+            },
+            "description": "Tap out at Lebak Bulus Grab station. Deducts fare and completes journey."
+          },
+          "response": []
+        },
+        {
+          "name": "04 Verify FARE_DEDUCTION in Ledger",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"FARE_DEDUCTION audit entry is present\", function () {",
+                  "    var json = pm.response.json();",
+                  "    var deduction = json.find(t => t.transaction_type === \"FARE_DEDUCTION\");",
+                  "    pm.expect(deduction).to.be.an(\"object\");",
+                  "    pm.expect(deduction.amount).to.be.below(0);",
+                  "    pm.expect(deduction.journey_id).to.not.be.null;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardNumber}}/transactions?limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardNumber}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Confirms financial audit trail recorded the trip fare deduction."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 Error Handling & Edge Cases",
+      "item": [
+        {
+          "name": "01 Card Not Found (Expected 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404 Not Found\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"Error message indicates card not found\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"not found\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/9999999999999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "9999999999999999"
+              ]
+            },
+            "description": "Queries non-existent 16-digit card number."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Negative Top-Up Amount (Expected 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 422 Unprocessable Entity\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test(\"Error indicates positive amount requirement\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"greater than zero\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": -1000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardNumber}}/top-up",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardNumber}}",
+                "top-up"
+              ]
+            },
+            "description": "Attempt top-up with negative amount."
+          },
+          "response": []
+        },
+        {
+          "name": "03 Provision Zero Balance Card",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"Card balance is Rp 0\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.balance).to.eql(0);",
+                  "    pm.collectionVariables.set(\"emptyCardNumber\", json.card_number);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"initial_balance\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards"
+              ]
+            },
+            "description": "Creates card with 0 balance for low-balance test."
+          },
+          "response": []
+        },
+        {
+          "name": "04 Tap-In With Insufficient Balance (Expected 402)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 402 Payment Required\", function () {",
+                  "    pm.response.to.have.status(402);",
+                  "});",
+                  "pm.test(\"Error indicates insufficient balance\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"insufficient balance\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{emptyCardNumber}}\",\n  \"station_id\": \"MRT-BHI\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-in",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-in"
+              ]
+            },
+            "description": "Turnstile must deny entry if card balance is less than Rp 5,000 minimum."
+          },
+          "response": []
+        },
+        {
+          "name": "05 Tap-Out Without Active Journey (Expected 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 409 Conflict\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"Error indicates no active journey\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"no active journey found\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{emptyCardNumber}}\",\n  \"station_id\": \"MRT-BLB\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-out",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-out"
+              ]
+            },
+            "description": "Exit turnstile rejects cards with no active in-progress journey."
+          },
+          "response": []
+        },
+        {
+          "name": "06 Tap-In Station Not In Route (Expected 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 422 Unprocessable Entity\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test(\"Error indicates station mismatch with route\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"station is not part of the specified route\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{cardNumber}}\",\n  \"station_id\": \"MRT-BHI\",\n  \"route_id\": \"TJ-1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-in",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-in"
+              ]
+            },
+            "description": "Deny tap-in when specified station does not belong to the selected route corridor."
+          },
+          "response": []
+        },
+        {
+          "name": "07 Tap-Out Disconnected Route (Expected 422)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.sendRequest({",
+                  "    url: pm.variables.get(\"baseUrl\") + \"/api/cards\",",
+                  "    method: \"POST\",",
+                  "    header: { \"Content-Type\": \"application/json\" },",
+                  "    body: { mode: \"raw\", raw: JSON.stringify({ initial_balance: 50000 }) }",
+                  "}, function (err, res) {",
+                  "    if (!err && res.code === 201) {",
+                  "        var card = res.json();",
+                  "        pm.collectionVariables.set(\"disconnectedCardNumber\", card.card_number);",
+                  "        pm.sendRequest({",
+                  "            url: pm.variables.get(\"baseUrl\") + \"/api/gate/tap-in\",",
+                  "            method: \"POST\",",
+                  "            header: { \"Content-Type\": \"application/json\" },",
+                  "            body: { mode: \"raw\", raw: JSON.stringify({ card_number: card.card_number, station_id: \"MRT-BHI\" }) }",
+                  "        }, function () {});",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 422 Unprocessable Entity\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test(\"Error indicates no connecting route between entry and exit stations\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.include(\"no connecting transit route between entry and exit stations\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{disconnectedCardNumber}}\",\n  \"station_id\": \"LRT-BK-HAR\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/gate/tap-out",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "gate",
+                "tap-out"
+              ]
+            },
+            "description": "Rejects tap-out when entry station and exit station share no connecting transit corridor."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 Routes Directory",
+      "item": [
+        {
+          "name": "01 List All Routes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns route network with stop lists\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an(\"array\");",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "    pm.expect(json[0]).to.have.property(\"id\");",
+                  "    pm.expect(json[0]).to.have.property(\"name\");",
+                  "    pm.expect(json[0]).to.have.property(\"stops\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "routes"
+              ]
+            },
+            "description": "List all registered routes across MRT, LRT, TransJakarta, and Mikrotrans."
+          },
+          "response": []
+        },
+        {
+          "name": "02 Filter Routes by Mode",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"All returned routes match MRT mode\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "    json.forEach(function (route) {",
+                  "        pm.expect(route.mode).to.eql(\"MRT\");",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/routes?mode=mrt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "routes"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "mrt"
+                }
+              ]
+            },
+            "description": "Filter routes by transit operator mode (e.g. MRT, LRT, TRANSJAKARTA, MIKROTRANS)."
+          },
+          "response": []
+        },
+        {
+          "name": "03 Get Route Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns route metadata with ordered stops\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.eql(\"MRT-M1\");",
+                  "    pm.expect(json.name).to.eql(\"North-South Line\");",
+                  "    pm.expect(json.mode).to.eql(\"MRT\");",
+                  "    pm.expect(json.stops).to.be.an(\"array\");",
+                  "    pm.expect(json.stops.length).to.be.above(0);",
+                  "    pm.expect(json.stops[0].sequence).to.eql(1);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/routes/MRT-M1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "routes",
+                "MRT-M1"
+              ]
+            },
+            "description": "Retrieve comprehensive details and sequence of stops for a specific route."
+          },
+          "response": []
+        },
+        {
+          "name": "04 Check Route Connectivity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns active direct connectivity between stations\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.is_connected).to.be.true;",
+                  "    pm.expect(json.origin_station_id).to.eql(\"MRT-BLB\");",
+                  "    pm.expect(json.destination_station_id).to.eql(\"MRT-DKA\");",
+                  "    pm.expect(json.connecting_routes).to.be.an(\"array\");",
+                  "    pm.expect(json.connecting_routes.length).to.be.above(0);",
+                  "    var routeIds = json.connecting_routes.map(function(r) { return r.id; });",
+                  "    pm.expect(routeIds).to.include(\"MRT-M1\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/routes/connectivity?origin=MRT-BLB&destination=MRT-DKA",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "routes",
+                "connectivity"
+              ],
+              "query": [
+                {
+                  "key": "origin",
+                  "value": "MRT-BLB"
+                },
+                {
+                  "key": "destination",
+                  "value": "MRT-DKA"
+                }
+              ]
+            },
+            "description": "Evaluates whether two stations are directly connected by one or more transit routes."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
