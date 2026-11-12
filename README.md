@@ -1,8 +1,13 @@
 # Golingko - One Platform, Multiple Transit Networks
 
-### Overview
+Golingko is a high-throughput backend engine that simulates Greater Jakarta’s public transit network.
 
-Golingko is a high-throughput backend engine that simulates Greater Jakarta’s public transit network—integrating MRT Jakarta, LRT Jakarta, TransJakarta BRT, and Mikrotrans feeder routes under a unified tap-in and tap-out platform.
+[![Go Version](https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go)](https://go.dev)
+[![Turnstile SLA](https://img.shields.io/badge/Turnstile_SLA-Sub--300ms_PASSED-success?style=flat-square)](docs/RESULT_2026-11-09.md)
+[![Peak Throughput](https://img.shields.io/badge/Peak_Throughput-~119k_req%2Fs-blueviolet?style=flat-square)](README.md#benchmark-highlights)
+[![API Docs](https://img.shields.io/badge/OpenAPI_3.0-Scalar_UI-orange?style=flat-square)](api/openapi/)
+[![Database](https://img.shields.io/badge/PostgreSQL-17-336791?style=flat-square&logo=postgresql)](migrations/)
+[![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
 
 ### Preface
 
@@ -131,10 +136,6 @@ Uber Zap is known for zero-allocation performance when used natively with typed 
 
 ---
 
-### Architecture & Project Structure
-
-The project emphasizes domain-driven separation across core business logic and verification suites:
-
 ```
 golingko/
 ├── cmd/
@@ -195,7 +196,6 @@ golingko/
 Launch Golingko using either `make` shortcuts or standard Go and Docker commands.
 
 #### Running with Make
-If `make` is installed on your system:
 
 ```bash
 # 1. Start the PostgreSQL container
@@ -210,7 +210,6 @@ make dev
 ```
 
 #### Running with Traditional Tooling
-If running directly on Windows or environments without `make`:
 
 ```bash
 # 1. Start the PostgreSQL container
@@ -223,20 +222,6 @@ docker compose up -d
 # 3. Start the application server (binds to http://localhost:8080)
 go run ./cmd/golingko
 ```
-
-#### Checking Health
-Verify the service is up and connected to PostgreSQL:
-
-```bash
-curl -i http://localhost:8080/health
-```
-
-Expected response:
-```json
-{"status":"ok","database":"connected"}
-```
-
-Open `http://localhost:8080/docs/` in your browser to inspect and test endpoints via Scalar. For automated Bruno and Postman test setups, refer to [`api/README.md`](file:///f:/__Projects/golingko/api/README.md).
 
 ---
 
@@ -288,3 +273,9 @@ Configure the platform via environment variables or a `.env` file:
 
 - **Interactive API Documentation**: Explore and execute requests via Scalar UI at `http://localhost:8080/docs/`.
 - **[API Testing & Tooling Guide](file:///f:/__Projects/golingko/api/README.md)**: Details on Bruno, Postman, and Scalar test workflows.
+
+---
+
+### License
+
+This project is licensed under the [MIT License](LICENSE).
