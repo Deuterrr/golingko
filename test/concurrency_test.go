@@ -10,8 +10,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golingko/internal/transit"
+	"golingko/internal/worker"
+	"golingko/pkg/logger"
 )
 
 func TestDoubleTap_RaceCondition(t *testing.T) {
@@ -230,5 +233,107 @@ func TestTransitLifecycle(t *testing.T) {
 	}
 	if updatedCard.Balance >= 50000 {
 		t.Fatalf("expected balance to be deducted after journey, got %d", updatedCard.Balance)
+	}
+}
+
+func TestSweeper_ConcurrentTapOutAndTopUp(t *testing.T) {
+	router, repo := SetupPartitionedApp()
+	sweeper := worker.NewSweeper(repo, time.Minute, -time.Second, logger.NewNoopLogger())
+
+	const numCards = 20
+	const initialBalance int64 = 30000
+	const topUpAmount int64 = 25000
+
+	cards := make([]*transit.CardRecord, numCards)
+	for i := 0; i < numCards; i++ {
+		cardNumber := fmt.Sprintf("100088887777%04d", i)
+		card, err := repo.CreateCard(context.Background(), nil, cardNumber, initialBalance, "active")
+		if err != nil {
+			t.Fatalf("failed to create card: %v", err)
+		}
+		cards[i] = card
+
+		payload := fmt.Sprintf(`{"card_number": "%s", "station_id": "MRT-DKA"}`, card.CardNumber)
+		req := httptest.NewRequest(http.MethodPost, "/api/gate/tap-in", bytes.NewBufferString(payload))
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("tap-in failed for %s: %d", card.CardNumber, rr.Code)
+		}
+	}
+
+	startGate := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Concurrent sweeper passes
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-startGate
+			_, _ = sweeper.SweepOnce(context.Background())
+		}()
+	}
+
+	// Concurrent top-ups and tap-outs per card
+	for _, c := range cards {
+		card := c
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-startGate
+			payload := fmt.Sprintf(`{"amount": %d}`, topUpAmount)
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/cards/%s/top-up", card.CardNumber), bytes.NewBufferString(payload))
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Errorf("top-up failed for %s: %d", card.CardNumber, rr.Code)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			<-startGate
+			payload := fmt.Sprintf(`{"card_number": "%s", "station_id": "MRT-BHI"}`, card.CardNumber)
+			req := httptest.NewRequest(http.MethodPost, "/api/gate/tap-out", bytes.NewBufferString(payload))
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+		}()
+	}
+
+	close(startGate)
+	wg.Wait()
+
+	for _, c := range cards {
+		updated, err := repo.GetCardByNumber(context.Background(), nil, c.CardNumber)
+		if err != nil {
+			t.Fatalf("failed to fetch card %s: %v", c.CardNumber, err)
+		}
+		txs, err := repo.ListLedgerTransactions(context.Background(), nil, c.ID, 50)
+		if err != nil {
+			t.Fatalf("failed to list transactions for %s: %v", c.CardNumber, err)
+		}
+
+		var fareCount, penaltyCount int
+		var netDelta int64
+		for _, tx := range txs {
+			netDelta += tx.Amount
+			switch transit.TransactionType(tx.TransactionType) {
+			case transit.TxTypeFareDeduction:
+				fareCount++
+			case transit.TxTypePenaltyFee:
+				penaltyCount++
+			}
+		}
+
+		// Exactly one trip resolution (either normal tap-out fare OR sweeper penalty, never both)
+		if fareCount+penaltyCount != 1 {
+			t.Fatalf("card %s: expected exactly 1 trip settlement (fare=%d, penalty=%d)", c.CardNumber, fareCount, penaltyCount)
+		}
+
+		// Balance must strictly equal initialBalance + ledger netDelta (proving no stale balance overwrite)
+		expectedBalance := initialBalance + netDelta
+		if updated.Balance != expectedBalance {
+			t.Fatalf("card %s: stale balance overwrite detected: got %d, expected %d", c.CardNumber, updated.Balance, expectedBalance)
+		}
 	}
 }

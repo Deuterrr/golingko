@@ -101,15 +101,16 @@ func (s *sweeper) SweepOnce(ctx context.Context) (int, error) {
 
 	for _, t := range trips {
 		err := s.repo.WithTx(ctx, func(tx *sql.Tx) error {
+			card, err := s.repo.GetCardForUpdate(ctx, tx, t.CardNumber)
+			if err != nil {
+				return err
+			}
 			if err := s.repo.ExpireJourney(ctx, tx, t.JourneyID, penaltyFee); err != nil {
 				return err
 			}
 
-			deduction := penaltyFee
-			if t.Balance < deduction {
-				deduction = t.Balance
-			}
-			newBalance := t.Balance - deduction
+			deduction := min(card.Balance, penaltyFee)
+			newBalance := card.Balance - deduction
 
 			if err := s.repo.UpdateCardBalance(ctx, tx, t.CardID, newBalance); err != nil {
 				return err

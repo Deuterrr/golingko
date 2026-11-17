@@ -531,6 +531,9 @@ func (r *PartitionedMemoryRepository) ExpireJourney(ctx context.Context, tx *sql
 	if !ok {
 		return errors.New("journey not found")
 	}
+	if j.Status != string(transit.StatusInProgress) {
+		return transit.ErrNoActiveJourney
+	}
 	now := time.Now().UTC()
 	j.ExitTime = &now
 	j.FareAmount = penalty
@@ -578,15 +581,18 @@ func (r *PartitionedMemoryRepository) ListExpiredInProgressJourneys(ctx context.
 			r.cardsMu.RLock()
 			card, ok := r.cardsByID[j.CardID]
 			balance := int64(0)
+			cardNumber := ""
 			if ok {
 				balance = card.Balance
+				cardNumber = card.CardNumber
 			}
 			r.cardsMu.RUnlock()
 
 			result = append(result, transit.ExpiredTripDTO{
-				JourneyID: j.ID,
-				CardID:    j.CardID,
-				Balance:   balance,
+				JourneyID:  j.ID,
+				CardID:     j.CardID,
+				CardNumber: cardNumber,
+				Balance:    balance,
 			})
 			count++
 			if limit > 0 && count >= limit {
