@@ -102,9 +102,10 @@ type CompletedLegDTO struct {
 }
 
 type ExpiredTripDTO struct {
-	JourneyID string
-	CardID    string
-	Balance   int64
+	JourneyID  string
+	CardID     string
+	CardNumber string
+	Balance    int64
 }
 
 // Persistence contract.
@@ -666,8 +667,21 @@ func (r *sqlRepository) ExpireJourney(ctx context.Context, tx *sql.Tx, journeyID
 		SET status = 'expired', fare_amount = $1, exit_time = CURRENT_TIMESTAMP
 		WHERE id = $2 AND status = 'in_progress'
 	`
-	_, err := tx.ExecContext(ctx, query, penalty, journeyID)
-	return err
+
+	rows, err := tx.ExecContext(ctx, query, penalty, journeyID)
+	if err != nil {
+		return fmt.Errorf("failed to expire journey: %w", err)
+	}
+
+	res, err := rows.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if res == 0 {
+		return ErrNoActiveJourney
+	}
+
+	return nil
 }
 
 func (r *sqlRepository) ListRecentCompletedJourneys(ctx context.Context, exec DBExecutor, cardID string, since time.Time) ([]CompletedLegDTO, error) {
@@ -714,7 +728,7 @@ func (r *sqlRepository) ListExpiredInProgressJourneys(ctx context.Context, exec 
 	}
 
 	query := `
-		SELECT j.id, j.card_id, c.balance
+		SELECT j.id, j.card_id, c.card_number, c.balance
 		FROM journeys j
 		JOIN cards c ON j.card_id = c.id
 		WHERE j.status = 'in_progress' AND j.entry_time < $1
@@ -730,7 +744,7 @@ func (r *sqlRepository) ListExpiredInProgressJourneys(ctx context.Context, exec 
 	var trips []ExpiredTripDTO
 	for rows.Next() {
 		var t ExpiredTripDTO
-		if err := rows.Scan(&t.JourneyID, &t.CardID, &t.Balance); err == nil {
+		if err := rows.Scan(&t.JourneyID, &t.CardID, &t.CardNumber, &t.Balance); err == nil {
 			trips = append(trips, t)
 		}
 	}
