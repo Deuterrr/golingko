@@ -113,4 +113,22 @@ func TestCalculateFare(t *testing.T) {
 			t.Errorf("expected CapApplied to be true")
 		}
 	})
+
+	t.Run("JakLingko transfer window expired (> 180m) charges standard single-mode fare", func(t *testing.T) {
+		res := CalculateFare(FareCalculationParams{
+			Origin:             stMRT_BHI,
+			Destination:        stMRT_BLB,
+			Duration:           20 * time.Minute,
+			PriorFaresInWindow: FlatFareTJ,
+			PriorModes:         []TransitMode{ModeTJ},
+			WindowElapsed:      190 * time.Minute,
+		})
+
+		if res.IsIntegrated {
+			t.Errorf("expected IsIntegrated to be false when WindowElapsed > 180m")
+		}
+		if res.FareAmount != 5000 {
+			t.Fatalf("expected standard MRT fare 5000 after window expiry, got %d", res.FareAmount)
+		}
+	})
 }

@@ -145,25 +145,25 @@ type StressOptions struct {
 }
 
 type StressResult struct {
-	Stage             string   `json:"stage,omitempty"`
-	Router            string   `json:"router"`
-	Logger            string   `json:"logger"`
-	Workers           int      `json:"workers"`
-	TotalRequests     int64    `json:"total_requests"`
-	SuccessRequests   int64    `json:"success_requests"`
-	FailedRequests    int64    `json:"failed_requests"`
-	ConflictRequests  int64    `json:"conflict_requests"`
-	DurationSec       float64  `json:"duration_sec"`
-	RPS               float64  `json:"rps"`
-	P50Ms             float64  `json:"p50_ms"`
-	P90Ms             float64  `json:"p90_ms"`
-	P95Ms             float64  `json:"p95_ms"`
-	P99Ms             float64  `json:"p99_ms"`
-	MaxMs             float64  `json:"max_ms"`
-	SLAPassed         bool     `json:"sla_passed"`
-	SLABreachRatePct  float64  `json:"sla_breach_rate_pct"`
-	Latencies         []time.Duration `json:"-"`
-	Metrics           *RealisticMetrics `json:"-"`
+	Stage            string            `json:"stage,omitempty"`
+	Router           string            `json:"router"`
+	Logger           string            `json:"logger"`
+	Workers          int               `json:"workers"`
+	TotalRequests    int64             `json:"total_requests"`
+	SuccessRequests  int64             `json:"success_requests"`
+	FailedRequests   int64             `json:"failed_requests"`
+	ConflictRequests int64             `json:"conflict_requests"`
+	DurationSec      float64           `json:"duration_sec"`
+	RPS              float64           `json:"rps"`
+	P50Ms            float64           `json:"p50_ms"`
+	P90Ms            float64           `json:"p90_ms"`
+	P95Ms            float64           `json:"p95_ms"`
+	P99Ms            float64           `json:"p99_ms"`
+	MaxMs            float64           `json:"max_ms"`
+	SLAPassed        bool              `json:"sla_passed"`
+	SLABreachRatePct float64           `json:"sla_breach_rate_pct"`
+	Latencies        []time.Duration   `json:"-"`
+	Metrics          *RealisticMetrics `json:"-"`
 }
 
 func main() {

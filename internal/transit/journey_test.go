@@ -367,4 +367,66 @@ func TestJourneyOrchestrator_TapOut(t *testing.T) {
 			t.Fatalf("expected ErrNoConnectingRoute, got %v", err)
 		}
 	})
+
+	t.Run("Resets to standard single-mode fare when 180-minute transfer window from first leg tap-in has elapsed", func(t *testing.T) {
+		now := time.Now().UTC()
+		mock := &mockRepository{
+			card: &CardRecord{
+				ID:         "c1",
+				CardNumber: "1000111122223333",
+				Balance:    50000,
+				Status:     "active",
+			},
+			originStation: &StationRecord{
+				ID:        "MRT-BHI",
+				Name:      "Bundaran HI",
+				Mode:      "mrt",
+				ZoneIndex: 1,
+				IsActive:  true,
+			},
+			destStation: &StationRecord{
+				ID:        "MRT-BLB",
+				Name:      "Lebak Bulus Grab",
+				Mode:      "mrt",
+				ZoneIndex: 3,
+				IsActive:  true,
+			},
+			activeJourney: &JourneyRecord{
+				ID:             "j2",
+				CardID:         "c1",
+				EntryStationID: "MRT-BHI",
+				EntryTime:      now.Add(-20 * time.Minute),
+				Status:         "in_progress",
+			},
+			recentLegs: []CompletedLegDTO{
+				{
+					Mode:       "transjakarta",
+					FareAmount: FlatFareTJ,
+					EntryTime:  now.Add(-190 * time.Minute),
+					ExitTime:   now.Add(-160 * time.Minute),
+				},
+			},
+			route: &RouteRecord{
+				ID:       "MRT-M1",
+				Code:     "M1",
+				Mode:     "mrt",
+				IsActive: true,
+			},
+		}
+
+		orch := NewJourneyOrchestrator(mock, 5000)
+		result, err := orch.TapOut(context.Background(), mock.card.CardNumber, "MRT-BLB", false)
+		if err != nil {
+			t.Fatalf("expected successful tap out, got %v", err)
+		}
+
+		if result.Fare.IsIntegrated {
+			t.Errorf("expected non-integrated fare after 190m elapsed since first leg tap-in")
+		}
+		// Standard MRT Zone 1 -> Zone 3 fare: 3000 + 2*1000 = 5000
+		const expectedStandardMRTFare int64 = 5000
+		if result.Fare.FareAmount != expectedStandardMRTFare {
+			t.Errorf("expected standard MRT fare %d, got %d", expectedStandardMRTFare, result.Fare.FareAmount)
+		}
+	})
 }

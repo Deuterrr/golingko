@@ -563,6 +563,7 @@ func (r *PartitionedMemoryRepository) ListRecentCompletedJourneys(ctx context.Co
 			result = append(result, transit.CompletedLegDTO{
 				Mode:       mode,
 				FareAmount: leg.FareAmount,
+				EntryTime:  leg.EntryTime,
 				ExitTime:   *leg.ExitTime,
 			})
 		}
