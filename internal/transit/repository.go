@@ -98,6 +98,7 @@ type LedgerRecord struct {
 type CompletedLegDTO struct {
 	Mode       string
 	FareAmount int64
+	EntryTime  time.Time
 	ExitTime   time.Time
 }
 
@@ -691,7 +692,7 @@ func (r *sqlRepository) ListRecentCompletedJourneys(ctx context.Context, exec DB
 	}
 
 	query := `
-		SELECT s.mode, j.fare_amount, j.exit_time
+		SELECT s.mode, j.fare_amount, j.entry_time, j.exit_time
 		FROM journeys j
 		JOIN stations s ON j.entry_station_id = s.id
 		WHERE j.card_id = $1
@@ -709,7 +710,7 @@ func (r *sqlRepository) ListRecentCompletedJourneys(ctx context.Context, exec DB
 	var legs []CompletedLegDTO
 	for rows.Next() {
 		var leg CompletedLegDTO
-		if err := rows.Scan(&leg.Mode, &leg.FareAmount, &leg.ExitTime); err == nil {
+		if err := rows.Scan(&leg.Mode, &leg.FareAmount, &leg.EntryTime, &leg.ExitTime); err == nil {
 			legs = append(legs, leg)
 		}
 	}

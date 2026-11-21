@@ -262,6 +262,10 @@ func (o *journeyOrchestrator) TapOut(ctx context.Context, cardNumber string, sta
 		if err != nil {
 			return fmt.Errorf("failed to query transfer window trips: %w", err)
 		}
+		windowElapsed := duration
+		if len(recentLegs) > 0 {
+			windowElapsed = now.Sub(recentLegs[0].EntryTime)
+		}
 
 		var priorModes []TransitMode
 		var priorFares int64
@@ -303,7 +307,7 @@ func (o *journeyOrchestrator) TapOut(ctx context.Context, cardNumber string, sta
 			Duration:           duration,
 			PriorFaresInWindow: priorFares,
 			PriorModes:         priorModes,
-			WindowElapsed:      duration,
+			WindowElapsed:      windowElapsed,
 			RouteDistanceKm:    routeDistKm,
 		})
 
