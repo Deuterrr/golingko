@@ -135,6 +135,9 @@ func (m *mockRepository) CompleteJourney(ctx context.Context, tx *sql.Tx, journe
 }
 
 func (m *mockRepository) ExpireJourney(ctx context.Context, tx *sql.Tx, journeyID string, penalty int64) error {
+	if m.activeJourney != nil && m.activeJourney.ID == journeyID {
+		m.activeJourney = nil
+	}
 	return nil
 }
 
@@ -269,6 +272,58 @@ func TestJourneyOrchestrator_TapIn(t *testing.T) {
 		_, err := orch.TapIn(context.Background(), mock.card.CardNumber, "MRT-DKA", &routeID)
 		if err != ErrStationNotInRoute {
 			t.Fatalf("expected ErrStationNotInRoute, got %v", err)
+		}
+	})
+
+	t.Run("Rejects entry when overdue journey penalty depletes balance below minimum threshold", func(t *testing.T) {
+		mock := &mockRepository{
+			card: &CardRecord{
+				ID:         "c1",
+				CardNumber: "1000111122223333",
+				Balance:    12000,
+				Status:     "active",
+			},
+			originStation: &StationRecord{
+				ID:       "MRT-DKA",
+				Name:     "Dukuh Atas BNI",
+				Mode:     "mrt",
+				IsActive: true,
+			},
+			activeJourney: &JourneyRecord{
+				ID:             "j-expired",
+				CardID:         "c1",
+				EntryStationID: "MRT-BHI",
+				EntryTime:      time.Now().UTC().Add(-(MaxJourneyDuration + time.Hour)),
+				Status:         string(StatusInProgress),
+			},
+		}
+
+		orch := NewJourneyOrchestrator(mock, 5000)
+
+		trip, err := orch.TapIn(context.Background(), mock.card.CardNumber, "MRT-DKA", nil)
+		if err != ErrInsufficientBalance {
+			t.Fatalf("expected ErrInsufficientBalance, got %v", err)
+		}
+		if trip != nil || mock.createdJourney != nil {
+			t.Fatalf("expected no new journey to be created when post-penalty balance is insufficient")
+		}
+		if mock.card.Balance != 2000 {
+			t.Errorf("expected balance to be 2000 after Rp 10,000 penalty, got %d", mock.card.Balance)
+		}
+		if mock.ledgerTx == nil {
+			t.Fatalf("expected penalty ledger transaction to be recorded")
+		}
+		if mock.ledgerTx.TransactionType != string(TxTypePenaltyFee) || mock.ledgerTx.Amount != -AbandonedTripPenaltyFare {
+			t.Errorf("unexpected ledger record: type=%s amount=%d", mock.ledgerTx.TransactionType, mock.ledgerTx.Amount)
+		}
+
+		mock.card.Balance += 10000
+		newTrip, err := orch.TapIn(context.Background(), mock.card.CardNumber, "MRT-DKA", nil)
+		if err != nil {
+			t.Fatalf("expected subsequent tap in after top-up to succeed, got %v", err)
+		}
+		if newTrip == nil || newTrip.Status != StatusInProgress {
+			t.Errorf("expected new in-progress journey after top-up, got %+v", newTrip)
 		}
 	})
 }
