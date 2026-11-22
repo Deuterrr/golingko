@@ -98,11 +98,9 @@ func (o *journeyOrchestrator) TapIn(ctx context.Context, cardNumber string, stat
 		if err != nil {
 			return err
 		}
-
 		if cardRecord.Status != string(CardStatusActive) {
 			return ErrCardInactive
 		}
-
 		if cardRecord.Balance < o.minTapBalance {
 			return ErrInsufficientBalance
 		}
@@ -133,33 +131,39 @@ func (o *journeyOrchestrator) TapIn(ctx context.Context, cardNumber string, stat
 		}
 
 		activeJourney, err := o.repo.GetActiveJourneyForUpdate(ctx, tx, cardRecord.ID)
-		if err == nil {
-			if time.Since(activeJourney.EntryTime) > MaxJourneyDuration {
-				if err := o.repo.ExpireJourney(ctx, tx, activeJourney.ID, AbandonedTripPenaltyFare); err != nil {
-					return err
-				}
-
-				penaltyDeduction := AbandonedTripPenaltyFare
-				if cardRecord.Balance < penaltyDeduction {
-					penaltyDeduction = cardRecord.Balance
-				}
-				newBalance := cardRecord.Balance - penaltyDeduction
-				if err := o.repo.UpdateCardBalance(ctx, tx, cardRecord.ID, newBalance); err != nil {
-					return err
-				}
-
-				_, _ = o.repo.RecordLedgerTransaction(ctx, tx, LedgerRecord{
-					CardID:          cardRecord.ID,
-					JourneyID:       &activeJourney.ID,
-					TransactionType: string(TxTypePenaltyFee),
-					Amount:          -penaltyDeduction,
-					BalanceAfter:    newBalance,
-				})
-			} else {
+		if err != nil && !errors.Is(err, ErrNoActiveJourney) {
+			return err
+		}
+		if activeJourney != nil {
+			if time.Since(activeJourney.EntryTime) <= MaxJourneyDuration {
 				return ErrAlreadyInJourney
 			}
-		} else if !errors.Is(err, ErrNoActiveJourney) {
-			return err
+
+			if err := o.repo.ExpireJourney(ctx, tx, activeJourney.ID, AbandonedTripPenaltyFare); err != nil {
+				return err
+			}
+
+			penaltyDeduction := min(AbandonedTripPenaltyFare, cardRecord.Balance)
+			newBalance := cardRecord.Balance - penaltyDeduction
+			if err := o.repo.UpdateCardBalance(ctx, tx, cardRecord.ID, newBalance); err != nil {
+				return err
+			}
+
+			entry := LedgerRecord{
+				CardID:          cardRecord.ID,
+				JourneyID:       &activeJourney.ID,
+				TransactionType: string(TxTypePenaltyFee),
+				Amount:          -penaltyDeduction,
+				BalanceAfter:    newBalance,
+			}
+			if _, err = o.repo.RecordLedgerTransaction(ctx, tx, entry); err != nil {
+				return err
+			}
+
+			cardRecord.Balance = newBalance
+			if cardRecord.Balance < o.minTapBalance {
+				return ErrInsufficientBalance
+			}
 		}
 
 		newTrip, err := o.repo.CreateJourney(ctx, tx, cardRecord.ID, stationID, routeID)
@@ -170,7 +174,6 @@ func (o *journeyOrchestrator) TapIn(ctx context.Context, cardNumber string, stat
 		createdJourney = toDomainJourney(newTrip)
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
