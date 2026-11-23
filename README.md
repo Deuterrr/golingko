@@ -1,6 +1,8 @@
-# Golingko - One Platform, Multiple Transit Networks
+# Golingko
 
-Golingko is a high-throughput backend engine that simulates Greater Jakarta’s public transit network.
+One Platform, Multiple Transit Networks.
+
+![Golingko Repository Banner](assets/banner.png)
 
 [![Go Version](https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go)](https://go.dev)
 [![Turnstile SLA](https://img.shields.io/badge/Turnstile_SLA-Sub--300ms_PASSED-success?style=flat-square)](docs/RESULT_2026-11-09.md)
