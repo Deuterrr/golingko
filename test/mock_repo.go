@@ -211,6 +211,10 @@ func (r *PartitionedMemoryRepository) WithTx(ctx context.Context, fn func(tx *sq
 }
 
 func (r *PartitionedMemoryRepository) CreateCard(ctx context.Context, exec transit.DBExecutor, cardNumber string, initialBalance int64, status string) (*transit.CardRecord, error) {
+	if initialBalance < 0 {
+		return nil, transit.ErrNegativeBalance
+	}
+
 	r.cardsMu.Lock()
 	defer r.cardsMu.Unlock()
 

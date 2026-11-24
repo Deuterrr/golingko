@@ -307,3 +307,43 @@ func TestHandler_TapOut_AllowOverdraft(t *testing.T) {
 		}
 	})
 }
+
+type stubCardService struct {
+	transit.CardService
+}
+
+func (m *stubCardService) CreateCard(ctx context.Context, cardNumber string, initialBalance int64) (*transit.Card, error) {
+	if initialBalance < 0 {
+		return nil, transit.ErrNegativeBalance
+	}
+	return &transit.Card{
+		ID:         "c-1",
+		CardNumber: "1000111122223333",
+		Balance:    initialBalance,
+		Status:     transit.CardStatusActive,
+	}, nil
+}
+
+func TestHandler_CreateCard_NegativeBalance(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewHandler(&stubCardService{}, nil, nil, nil, nil, nil, logger)
+	router := SetupRouter(handler, logger)
+
+	body := bytes.NewBufferString(`{"initial_balance": -1000}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/cards", body)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d", rr.Code)
+	}
+
+	var errResp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if errResp["error"] != transit.ErrNegativeBalance.Error() {
+		t.Errorf("expected error %q, got %q", transit.ErrNegativeBalance.Error(), errResp["error"])
+	}
+}

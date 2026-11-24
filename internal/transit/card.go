@@ -64,6 +64,10 @@ func NewCardService(repo TransitRepository) CardService {
 }
 
 func (s *cardService) CreateCard(ctx context.Context, cardNumber string, initialBalance int64) (*Card, error) {
+	if initialBalance < 0 {
+		return nil, ErrNegativeBalance
+	}
+
 	if cardNumber == "" {
 		generated, err := GenerateCardNumber()
 		if err != nil {

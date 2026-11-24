@@ -101,6 +101,10 @@ func (h *Handler) CreateCard(w http.ResponseWriter, r *http.Request) {
 
 	card, err := h.cards.CreateCard(r.Context(), req.CardNumber, req.InitialBalance)
 	if err != nil {
+		if errors.Is(err, transit.ErrNegativeBalance) {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
