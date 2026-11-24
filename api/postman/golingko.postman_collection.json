@@ -194,7 +194,7 @@
                   "pm.test(\"Card balance increased by Rp 25,000 and TOP_UP recorded in ledger\", function () {",
                   "    var json = pm.response.json();",
                   "    pm.expect(json.card.balance).to.eql(75000);",
-                  "    pm.expect(json.transaction.transaction_type).to.eql(\"TOP_UP\");",
+                  "    pm.expect(json.transaction.transaction_type).to.eql(\"top_up\");",
                   "    pm.expect(json.transaction.amount).to.eql(25000);",
                   "    pm.expect(json.transaction.balance_after).to.eql(75000);",
                   "});"
@@ -723,7 +723,7 @@
                   "});",
                   "pm.test(\"FARE_DEDUCTION audit entry is present\", function () {",
                   "    var json = pm.response.json();",
-                  "    var deduction = json.find(t => t.transaction_type === \"FARE_DEDUCTION\");",
+                  "    var deduction = json.find(t => t.transaction_type === \"fare_deduction\");",
                   "    pm.expect(deduction).to.be.an(\"object\");",
                   "    pm.expect(deduction.amount).to.be.below(0);",
                   "    pm.expect(deduction.journey_id).to.not.be.null;",

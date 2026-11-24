@@ -30,7 +30,7 @@ script:pre-request {
 assert {
   res.status: eq 200
   res.body.card.balance: eq 75000
-  res.body.transaction.transaction_type: eq TOP_UP
+  res.body.transaction.transaction_type: eq top_up
   res.body.transaction.amount: eq 25000
   res.body.transaction.balance_after: eq 75000
 }
