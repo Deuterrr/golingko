@@ -238,3 +238,72 @@ func TestHandler_RouteEndpoints(t *testing.T) {
 		}
 	})
 }
+
+type mockJourneyOrchestrator struct {
+	transit.JourneyOrchestrator
+	capturedAllowOverdraft bool
+}
+
+func (m *mockJourneyOrchestrator) TapOut(ctx context.Context, cardNumber string, stationID string, allowOverdraft bool) (*transit.TapOutResult, error) {
+	m.capturedAllowOverdraft = allowOverdraft
+	if !allowOverdraft {
+		return nil, transit.ErrInsufficientBalanceForExit
+	}
+	return &transit.TapOutResult{
+		Journey: &transit.Journey{
+			ID:             "j-1",
+			CardID:         "c-1",
+			EntryStationID: "TJ-KOTA",
+			ExitStationID:  &stationID,
+			FareAmount:     3500,
+			Status:         transit.StatusCompleted,
+		},
+		Fare: transit.FareResult{
+			FareAmount: 3500,
+		},
+		RemainingBalance: 0,
+		GateOpened:       true,
+	}, nil
+}
+
+func TestHandler_TapOut_AllowOverdraft(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mockJourneys := &mockJourneyOrchestrator{}
+	handler := NewHandler(nil, nil, nil, mockJourneys, nil, nil, logger)
+	router := SetupRouter(handler, logger)
+
+	t.Run("Returns 402 Payment Required when allow_overdraft is omitted or false", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"card_number": "1000111122223333", "station_id": "TJ-MNAS"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/gate/tap-out", body)
+		rr := httptest.NewRecorder()
+
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusPaymentRequired {
+			t.Fatalf("expected status 402, got %d", rr.Code)
+		}
+		if mockJourneys.capturedAllowOverdraft {
+			t.Errorf("expected allowOverdraft to be false")
+		}
+	})
+
+	t.Run("Forwards allow_overdraft true and completes exit", func(t *testing.T) {
+		body := bytes.NewBufferString(`{"card_number": "1000111122223333", "station_id": "TJ-MNAS", "allow_overdraft": true}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/gate/tap-out", body)
+		rr := httptest.NewRecorder()
+
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rr.Code)
+		}
+		if !mockJourneys.capturedAllowOverdraft {
+			t.Errorf("expected allowOverdraft to be true")
+		}
+		var res transit.TapOutResult
+		if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+			t.Fatalf("failed to decode tap-out response: %v", err)
+		}
+		if !res.GateOpened || res.RemainingBalance != 0 {
+			t.Errorf("unexpected tap-out result: %+v", res)
+		}
+	})
+}

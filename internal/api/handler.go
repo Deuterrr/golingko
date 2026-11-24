@@ -408,6 +408,8 @@ type TapOutRequest struct {
 	CardNumber string `json:"card_number"`
 	// Unique identifier of the destination exit station or turnstile barrier.
 	StationID string `json:"station_id"`
+	// Permits emergency turnstile exit on insufficient balance.
+	AllowOverdraft bool `json:"allow_overdraft,omitempty"`
 }
 
 func (h *Handler) TapOut(w http.ResponseWriter, r *http.Request) {
@@ -422,8 +424,7 @@ func (h *Handler) TapOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowOverdraft := false
-	result, err := h.journeys.TapOut(r.Context(), req.CardNumber, req.StationID, allowOverdraft)
+	result, err := h.journeys.TapOut(r.Context(), req.CardNumber, req.StationID, req.AllowOverdraft)
 	if err != nil {
 		if errors.Is(err, transit.ErrCardNotFound) || errors.Is(err, transit.ErrStationNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
