@@ -321,10 +321,13 @@ func (o *journeyOrchestrator) TapOut(ctx context.Context, cardNumber string, sta
 				return ErrInsufficientBalanceForExit
 			}
 			cardRecord.Status = string(CardStatusBlocked)
-			_ = o.repo.UpdateCardStatus(ctx, tx, cardRecord.ID, cardRecord.Status)
+			if err := o.repo.UpdateCardStatus(ctx, tx, cardRecord.ID, cardRecord.Status); err != nil {
+				return err
+			}
 		}
 
-		newBalance := cardRecord.Balance - fareCalc.FareAmount
+		deduction := min(fareCalc.FareAmount, cardRecord.Balance)
+		newBalance := cardRecord.Balance - deduction
 		if err := o.repo.UpdateCardBalance(ctx, tx, cardRecord.ID, newBalance); err != nil {
 			return err
 		}
@@ -337,7 +340,7 @@ func (o *journeyOrchestrator) TapOut(ctx context.Context, cardNumber string, sta
 			CardID:          cardRecord.ID,
 			JourneyID:       &activeJourney.ID,
 			TransactionType: string(TxTypeFareDeduction),
-			Amount:          -fareCalc.FareAmount,
+			Amount:          -deduction,
 			BalanceAfter:    newBalance,
 		})
 		if err != nil {

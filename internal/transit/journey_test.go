@@ -39,6 +39,9 @@ func (m *mockRepository) GetCardForUpdate(ctx context.Context, tx *sql.Tx, numbe
 }
 
 func (m *mockRepository) UpdateCardBalance(ctx context.Context, tx *sql.Tx, cardID string, balance int64) error {
+	if balance < 0 {
+		return ErrNegativeBalance
+	}
 	if m.card != nil {
 		m.card.Balance = balance
 	}
@@ -482,6 +485,121 @@ func TestJourneyOrchestrator_TapOut(t *testing.T) {
 		const expectedStandardMRTFare int64 = 5000
 		if result.Fare.FareAmount != expectedStandardMRTFare {
 			t.Errorf("expected standard MRT fare %d, got %d", expectedStandardMRTFare, result.Fare.FareAmount)
+		}
+	})
+
+	t.Run("Rejects exit when balance is insufficient and allowOverdraft is false", func(t *testing.T) {
+		mock := &mockRepository{
+			card: &CardRecord{
+				ID:         "c1",
+				CardNumber: "1000111122223333",
+				Balance:    2000,
+				Status:     string(CardStatusActive),
+			},
+			originStation: &StationRecord{
+				ID:        "TJ-KOTA",
+				Name:      "Kota",
+				Mode:      "transjakarta",
+				ZoneIndex: 1,
+				IsActive:  true,
+			},
+			destStation: &StationRecord{
+				ID:        "TJ-MNAS",
+				Name:      "Monas",
+				Mode:      "transjakarta",
+				ZoneIndex: 1,
+				IsActive:  true,
+			},
+			activeJourney: &JourneyRecord{
+				ID:             "j-low",
+				CardID:         "c1",
+				EntryStationID: "TJ-KOTA",
+				EntryTime:      time.Now().UTC().Add(-20 * time.Minute),
+				Status:         string(StatusInProgress),
+			},
+			route: &RouteRecord{
+				ID:       "TJ-1",
+				Code:     "1",
+				Mode:     "transjakarta",
+				IsActive: true,
+			},
+		}
+
+		orch := NewJourneyOrchestrator(mock, 5000)
+		_, err := orch.TapOut(context.Background(), mock.card.CardNumber, "TJ-MNAS", false)
+		if err != ErrInsufficientBalanceForExit {
+			t.Fatalf("expected ErrInsufficientBalanceForExit, got %v", err)
+		}
+		if mock.card.Status != string(CardStatusActive) {
+			t.Errorf("expected card status to remain active, got %s", mock.card.Status)
+		}
+		if mock.card.Balance != 2000 {
+			t.Errorf("expected card balance to remain 2000, got %d", mock.card.Balance)
+		}
+	})
+
+	t.Run("Allows emergency overdraft exit, floors balance at zero, and blocks card when allowOverdraft is true", func(t *testing.T) {
+		mock := &mockRepository{
+			card: &CardRecord{
+				ID:         "c1",
+				CardNumber: "1000111122223333",
+				Balance:    2000,
+				Status:     string(CardStatusActive),
+			},
+			originStation: &StationRecord{
+				ID:        "TJ-KOTA",
+				Name:      "Kota",
+				Mode:      "transjakarta",
+				ZoneIndex: 1,
+				IsActive:  true,
+			},
+			destStation: &StationRecord{
+				ID:        "TJ-MNAS",
+				Name:      "Monas",
+				Mode:      "transjakarta",
+				ZoneIndex: 1,
+				IsActive:  true,
+			},
+			activeJourney: &JourneyRecord{
+				ID:             "j-overdraft",
+				CardID:         "c1",
+				EntryStationID: "TJ-KOTA",
+				EntryTime:      time.Now().UTC().Add(-20 * time.Minute),
+				Status:         string(StatusInProgress),
+			},
+			route: &RouteRecord{
+				ID:       "TJ-1",
+				Code:     "1",
+				Mode:     "transjakarta",
+				IsActive: true,
+			},
+		}
+
+		orch := NewJourneyOrchestrator(mock, 5000)
+		result, err := orch.TapOut(context.Background(), mock.card.CardNumber, "TJ-MNAS", true)
+		if err != nil {
+			t.Fatalf("expected successful overdraft tap out, got %v", err)
+		}
+		if !result.GateOpened {
+			t.Errorf("expected gate to open on overdraft exit")
+		}
+		if result.Fare.FareAmount != FlatFareTJ {
+			t.Errorf("expected assessed fare %d, got %d", FlatFareTJ, result.Fare.FareAmount)
+		}
+		if result.RemainingBalance != 0 {
+			t.Errorf("expected remaining balance floored at 0, got %d", result.RemainingBalance)
+		}
+		if mock.card.Balance != 0 {
+			t.Errorf("expected repository card balance 0, got %d", mock.card.Balance)
+		}
+		if mock.card.Status != string(CardStatusBlocked) {
+			t.Errorf("expected card status %s, got %s", CardStatusBlocked, mock.card.Status)
+		}
+		if mock.ledgerTx == nil {
+			t.Fatalf("expected ledger transaction to be recorded")
+		}
+		if mock.ledgerTx.TransactionType != string(TxTypeFareDeduction) || mock.ledgerTx.Amount != -2000 || mock.ledgerTx.BalanceAfter != 0 {
+			t.Errorf("unexpected ledger entry: %+v", mock.ledgerTx)
 		}
 	})
 }
