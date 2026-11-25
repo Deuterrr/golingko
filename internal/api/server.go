@@ -13,8 +13,8 @@ func wrapMiddlewares(raw http.Handler, logger *slog.Logger) http.Handler {
 	idempotency := middleware.NewIdempotencyStore()
 
 	var wrapped http.Handler = raw
-	wrapped = middleware.LoggingMiddleware(logger)(wrapped)
 	wrapped = idempotency.Middleware(5 * time.Minute)(wrapped)
+	wrapped = middleware.LoggingMiddleware(logger)(wrapped)
 	wrapped = middleware.RecoveryMiddleware(logger)(wrapped)
 	wrapped = middleware.CORSMiddleware(wrapped)
 
