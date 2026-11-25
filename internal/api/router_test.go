@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -287,5 +288,70 @@ func TestRouterEngines_PathParameterHandling(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func TestRouter_LogsCachedIdempotentRequests(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
+
+	var topUpExecutions int
+	mockCards := &mockCardService{
+		topUpFunc: func(ctx context.Context, cardNumber string, amount int64, idempotencyKey *string) (*transit.Card, *transit.LedgerTransaction, error) {
+			topUpExecutions++
+			return &transit.Card{
+					ID:         "card-123",
+					CardNumber: cardNumber,
+					Balance:    75000,
+					Status:     transit.CardStatusActive,
+				}, &transit.LedgerTransaction{
+					ID:              "tx-123",
+					CardID:          "card-123",
+					TransactionType: transit.TxTypeTopUp,
+					Amount:          amount,
+					BalanceAfter:    75000,
+				}, nil
+		},
+	}
+
+	handler := NewHandler(mockCards, nil, nil, nil, nil, nil, logger)
+	router := SetupRouter(handler, logger)
+
+	const idempotencyKey = "idem-log-verify-1"
+
+	// executes service and logs
+	req1 := httptest.NewRequest(http.MethodPost, "/api/cards/1000999988887777/top-up", bytes.NewBufferString(`{"amount": 25000}`))
+	req1.Header.Set("Idempotency-Key", idempotencyKey)
+	rr1 := httptest.NewRecorder()
+	router.ServeHTTP(rr1, req1)
+
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("expected 200 on first request, got %d", rr1.Code)
+	}
+	if topUpExecutions != 1 {
+		t.Fatalf("expected 1 service execution, got %d", topUpExecutions)
+	}
+
+	// replayed POST request with identical idempotency-key
+	// cache HIT -> skips service, still logs
+	req2 := httptest.NewRequest(http.MethodPost, "/api/cards/1000999988887777/top-up", bytes.NewBufferString(`{"amount": 25000}`))
+	req2.Header.Set("Idempotency-Key", idempotencyKey)
+	rr2 := httptest.NewRecorder()
+	router.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on cached replay, got %d", rr2.Code)
+	}
+	if rr2.Header().Get("X-Cache-Lookup") != "HIT" {
+		t.Fatalf("expected X-Cache-Lookup: HIT header on replay, got %q", rr2.Header().Get("X-Cache-Lookup"))
+	}
+	if topUpExecutions != 1 {
+		t.Fatalf("expected service execution count to remain 1 on cache hit, got %d", topUpExecutions)
+	}
+
+	logOutput := logBuf.String()
+	logEntries := strings.Count(logOutput, "HTTP request")
+	if logEntries != 2 {
+		t.Errorf("expected 2 logged HTTP requests (initial + cached replay), got %d; logs:\n%s", logEntries, logOutput)
 	}
 }
