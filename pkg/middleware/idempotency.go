@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"golingko/pkg/httputil"
 )
 
 type cachedResponse struct {
@@ -18,13 +20,15 @@ type cachedResponse struct {
 // Concurrency-safe in-memory cache preventing duplicate execution of mutating operations.
 // It replays cached responses for matching idempotency keys within the expiration duration.
 type IdempotencyStore struct {
-	mu    sync.RWMutex
-	items map[string]cachedResponse
+	mu       sync.RWMutex
+	items    map[string]cachedResponse // Completed responses retained for replay.
+	inFlight map[string]struct{}       // Active client tokens currently executing.
 }
 
 func NewIdempotencyStore() *IdempotencyStore {
 	return &IdempotencyStore{
-		items: make(map[string]cachedResponse),
+		items:    make(map[string]cachedResponse),
+		inFlight: make(map[string]struct{}),
 	}
 }
 
@@ -55,11 +59,11 @@ func (s *IdempotencyStore) Middleware(ttl time.Duration) func(http.Handler) http
 				return
 			}
 
-			s.mu.RLock()
+			// Replay settled outcomes or reject concurrent duplicate tokens to prevent double billing.
+			s.mu.Lock()
 			cached, exists := s.items[key]
-			s.mu.RUnlock()
-
 			if exists && time.Now().Before(cached.expiresAt) {
+				s.mu.Unlock()
 				for h, vals := range cached.header {
 					for _, v := range vals {
 						w.Header().Add(h, v)
@@ -70,6 +74,20 @@ func (s *IdempotencyStore) Middleware(ttl time.Duration) func(http.Handler) http
 				_, _ = w.Write(cached.body)
 				return
 			}
+
+			if _, active := s.inFlight[key]; active {
+				s.mu.Unlock()
+				httputil.WriteError(w, http.StatusConflict, "request with this idempotency key is currently in progress")
+				return
+			}
+			s.inFlight[key] = struct{}{}
+			s.mu.Unlock()
+
+			defer func() {
+				s.mu.Lock()
+				delete(s.inFlight, key)
+				s.mu.Unlock()
+			}()
 
 			capture := &bodyCaptureWriter{
 				ResponseWriter: w,

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,6 +52,79 @@ func TestIdempotencyMiddleware(t *testing.T) {
 	}
 	if rr2.Header().Get("X-Cache-Lookup") != "HIT" {
 		t.Errorf("expected X-Cache-Lookup: HIT")
+	}
+}
+
+func TestIdempotencyMiddleware_ConcurrentInFlight(t *testing.T) {
+	store := NewIdempotencyStore()
+	var executionCount int32
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&executionCount, 1)
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success": true}`))
+	})
+
+	wrapped := store.Middleware(1 * time.Minute)(handler)
+
+	const concurrency = 10
+	startGate := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+
+	var okCount int32
+	var conflictCount int32
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			<-startGate
+
+			req := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewBufferString(`{}`))
+			req.Header.Set("Idempotency-Key", "stampede-key-1")
+			rr := httptest.NewRecorder()
+			wrapped.ServeHTTP(rr, req)
+
+			switch rr.Code {
+			case http.StatusOK:
+				atomic.AddInt32(&okCount, 1)
+			case http.StatusConflict:
+				atomic.AddInt32(&conflictCount, 1)
+			default:
+				t.Errorf("unexpected status code: %d", rr.Code)
+			}
+		}()
+	}
+
+	close(startGate)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&executionCount); got != 1 {
+		t.Fatalf("expected downstream handler to execute exactly once, got %d", got)
+	}
+	if got := atomic.LoadInt32(&okCount); got != 1 {
+		t.Errorf("expected 1 OK response, got %d", got)
+	}
+	if got := atomic.LoadInt32(&conflictCount); got != concurrency-1 {
+		t.Errorf("expected %d 409 Conflict responses, got %d", concurrency-1, got)
+	}
+
+	// Subsequent request after completion must return cached 200 OK with X-Cache-Lookup: HIT
+	reqAfter := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewBufferString(`{}`))
+	reqAfter.Header.Set("Idempotency-Key", "stampede-key-1")
+	rrAfter := httptest.NewRecorder()
+	wrapped.ServeHTTP(rrAfter, reqAfter)
+
+	if rrAfter.Code != http.StatusOK {
+		t.Fatalf("expected 200 on post-flight replay, got %d", rrAfter.Code)
+	}
+	if rrAfter.Header().Get("X-Cache-Lookup") != "HIT" {
+		t.Errorf("expected X-Cache-Lookup: HIT on post-flight replay, got %q", rrAfter.Header().Get("X-Cache-Lookup"))
+	}
+	if got := atomic.LoadInt32(&executionCount); got != 1 {
+		t.Errorf("expected execution count to remain 1, got %d", got)
 	}
 }
 
